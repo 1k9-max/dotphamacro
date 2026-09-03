@@ -109,7 +109,7 @@ public class MacroController {
 		ClientPlayerEntity player = client.player;
 		if (player == null) return;
 
-		if (player.getInventory().getSelectedSlot() != TRACKED_SLOT) {
+		if (player.getInventory().selectedSlot != TRACKED_SLOT) {
 			DotPhaMacroClient.sendLocalMessage(
 					Text.literal("[DotPha Macro] Hay chon hotbar slot 1 truoc khi click chuot trai.")
 							.formatted(Formatting.YELLOW));
@@ -196,7 +196,7 @@ public class MacroController {
 			return false;
 		}
 
-		if (player.getInventory().getSelectedSlot() != TRACKED_SLOT) {
+		if (player.getInventory().selectedSlot != TRACKED_SLOT) {
 			disable(Text.literal("[DotPha Macro] Da chuyen khoi hotbar slot 1 -> TU DONG TAT macro de an toan.")
 					.formatted(Formatting.RED));
 			return false;
