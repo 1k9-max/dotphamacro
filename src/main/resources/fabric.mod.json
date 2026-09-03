@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "dotphamacro",
+  "version": "${version}",
+  "name": "DotPha Macro",
+  "description": "Client-side macro tu dong hoa vong lap dot pha / do kiep dua theo chat.",
+  "authors": ["you"],
+  "contact": {},
+  "license": "MIT",
+  "icon": "",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.dotphamacro.DotPhaMacroClient"
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

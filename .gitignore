@@ -1,0 +1,26 @@
+# gradle
+.gradle/
+build/
+out/
+classes/
+
+# idea
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# eclipse
+.project
+.classpath
+.settings/
+bin/
+
+# vscode
+.vscode/
+
+# macOS
+.DS_Store
+
+# fabric run directory
+run/
