@@ -48,9 +48,11 @@ public class MacroController {
 			"độᴛ ᴘʜá ᴛʜàɴʜ ᴄôɴɢ ʟêɴ"
 	};
 
+	// Chi can khop phan cuoi cau (khong phu thuoc vao viec "/dokiep" duoc server
+	// stylize hay khong - thuc te server stylize CA chu "dokiep" thanh "/ᴅᴏᴋɪᴇᴘ")
 	private static final String[] DOKIEP_PROMPT_PATTERNS = {
-			"hãy dùng /dokiep để vượt qua thiên kiếp",
-			"ʜãʏ ᴅùɴɢ /dokiep để vượt qua thiên kiếp"
+			"để vượt qua thiên kiếp",
+			"để ᴠượᴛ ǫᴜᴀ ᴛʜɪêɴ ᴋɪếᴘ"
 	};
 
 	private static final String[] DOKIEP_FAIL_PATTERNS = {
@@ -178,6 +180,11 @@ public class MacroController {
 	}
 
 	private void handleRunningDoKiep(MinecraftClient client, String plain) {
+		// Tin bao ket qua do kiep thuong la broadcast toan server kem ten nguoi choi
+		// (vd "chillguy102 da that bai trong do loi kiep..."), nen phai loc xem co
+		// phai chinh minh khong, tranh nhan nham ket qua cua nguoi khac.
+		if (!mentionsMe(client, plain)) return;
+
 		if (containsAny(plain, DOKIEP_FAIL_PATTERNS)) {
 			if (!verifyTrackedItemStillHeld(client)) return;
 			sendCommand(client, "dotpha");
@@ -193,6 +200,19 @@ public class MacroController {
 	}
 
 	// ---------------------------------------------------------------------
+
+	/**
+	 * Kiem tra tin nhan co lien quan den chinh nguoi choi hay khong:
+	 * - Tin ca nhan (server dung tu "bạn") -> luon coi la lien quan.
+	 * - Tin broadcast toan server kem ten nguoi choi -> chi coi la lien quan
+	 *   neu chua ten (username) cua chinh minh.
+	 */
+	private static boolean mentionsMe(MinecraftClient client, String plain) {
+		if (plain.contains("bạn ")) return true;
+		String username = client.getSession().getUsername();
+		if (username == null || username.isEmpty()) return true; // khong xac dinh duoc -> khong chan
+		return plain.contains(username.toLowerCase(Locale.forLanguageTag("vi")));
+	}
 
 	/**
 	 * So sanh item dang cam o hotbar slot 1 voi item da luu khi bat macro.
