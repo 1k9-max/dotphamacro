@@ -9,7 +9,10 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Hand;
 
+import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Quan ly toan bo trang thai cua macro:
@@ -17,20 +20,28 @@ import java.util.Locale;
  *  IDLE            -> nhan phim toggle -> ARMED
  *  ARMED           -> nguoi choi left-click khi dang cam item o hotbar slot 1
  *                     -> luu lai item (Item + custom name) -> gui /dotpha -> RUNNING_DOTPHA
- *  RUNNING_DOTPHA  -> chat bao "that bai" hoac "thanh cong len" (cung cap)
+ *  RUNNING_DOTPHA  -> chat bao "that bai" hoac "thanh cong len"
  *                     -> kiem tra item con dung khong -> gui lai /dotpha (giu nguyen state)
  *                   -> chat bao "HAY DUNG /dokiep..."
- *                     -> kiem tra item -> right-click item + /tusat + /dokiep -> RUNNING_DOKIEP
+ *                     -> kiem tra item -> dung bua (right-click) -> /dokiep -> RUNNING_DOKIEP
  *  RUNNING_DOKIEP  -> chat bao that bai do kiep -> kiem tra item -> gui /dotpha -> RUNNING_DOTPHA
  *                   -> chat bao do kiep thanh cong / dot pha canh gioi / song sot
  *                     -> kiem tra item -> gui /dotpha -> RUNNING_DOTPHA
  *
  * O bat ky buoc nao neu item dang cam khac voi item da luu (doi item hoac
  * khong con o hotbar slot 1), macro se TU DONG TAT de tranh gui lenh nham.
+ *
+ * Moi hanh dong (dung item / gui lenh) di qua 1 hang doi co delay giua cac
+ * buoc (xem COMMAND_DELAY_TICKS), thay vi ban lien tuc trong cung 1 tick -
+ * tranh truong hop server chua kip xu ly buoc truoc (vd nhan vat con dang
+ * "chet" do buoc truoc) da nhan lenh buoc sau.
  */
 public class MacroController {
 
 	private static final int TRACKED_SLOT = 0; // hotbar slot "1" = index 0
+
+	/** So tick cho giua 2 hanh dong lien tiep (20 tick = 1 giay). */
+	private static final int COMMAND_DELAY_TICKS = 12; // ~0.6 giay
 
 	public enum State {
 		IDLE,
@@ -39,35 +50,41 @@ public class MacroController {
 		RUNNING_DOKIEP
 	}
 
-	// ----- cac mau chat can nhan dien (ban thuong + ban ky tu cach dieu) -----
+	// ----- cac mau chat can nhan dien (chi can viet dang thuong, vi moi tin -----
+	// ----- nhan da duoc "giai ma" font cach dieu ve chu Latin thuong truoc)  -----
 
 	private static final String[] DOTPHA_RETRY_PATTERNS = {
 			"đột phá thất bại",
-			"độᴛ ᴘʜá ᴛʜấᴛ ʙạɪ",
-			"đột phá thành công lên",
-			"độᴛ ᴘʜá ᴛʜàɴʜ ᴄôɴɢ ʟêɴ"
+			"đột phá thành công lên"
 	};
 
-	// Chi can khop phan cuoi cau (khong phu thuoc vao viec "/dokiep" duoc server
-	// stylize hay khong - thuc te server stylize CA chu "dokiep" thanh "/ᴅᴏᴋɪᴇᴘ")
 	private static final String[] DOKIEP_PROMPT_PATTERNS = {
-			"để vượt qua thiên kiếp",
-			"để ᴠượᴛ ǫᴜᴀ ᴛʜɪêɴ ᴋɪếᴘ"
+			"để vượt qua thiên kiếp"
 	};
 
 	private static final String[] DOKIEP_FAIL_PATTERNS = {
-			"thất bại trong độ lôi kiếp",
-			"ᴛʜấᴛ ʙạɪ ᴛʀᴏɴɢ độ ʟôɪ ᴋɪếᴘ"
+			"thất bại trong độ lôi kiếp"
 	};
 
 	private static final String[] DOKIEP_SUCCESS_PATTERNS = {
 			"độ kiếp thành công",
-			"độ ᴋɪếᴘ ᴛʜàɴʜ ᴄôɴɢ",
-			"độᴛ ᴘʜá ᴄảɴʜ ɢɪớɪ",
 			"đột phá cảnh giới",
-			"sóɴɢ sóᴛ ǫᴜᴀ độ ʟôɪ ᴋɪếᴘ",
 			"sống sót qua độ lôi kiếp"
 	};
+
+	// Cac ky tu Unicode "small caps" / gia dang (Cyrillic trong nhin giong Latin)
+	// ma server hay dung de "cach dieu" chu -> map nguoc ve chu Latin thuong.
+	private static final Map<Character, Character> STYLE_MAP = buildStyleMap();
+
+	private static Map<Character, Character> buildStyleMap() {
+		Map<Character, Character> m = new HashMap<>();
+		String stylized = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀѕᴛᴜᴠᴡхʏᴢ";
+		String normal   = "abcdefghijklmnopqrstuvwxyz";
+		for (int i = 0; i < stylized.length(); i++) {
+			m.put(stylized.charAt(i), normal.charAt(i));
+		}
+		return m;
+	}
 
 	private State state = State.IDLE;
 
@@ -80,6 +97,11 @@ public class MacroController {
 	// trong handleInputEvents() truoc khi END_CLIENT_TICK cua mod chay, khien wasPressed()
 	// luon tra ve false o day)
 	private boolean attackKeyWasDown = false;
+
+	// Hang doi cac hanh dong (gui lenh / dung item) can thuc hien tuan tu, moi
+	// hanh dong cach nhau COMMAND_DELAY_TICKS tick.
+	private final ArrayDeque<Runnable> pendingActions = new ArrayDeque<>();
+	private int cooldownTicks = 0;
 
 	// ---------------------------------------------------------------------
 
@@ -102,6 +124,15 @@ public class MacroController {
 
 		if (state == State.ARMED && justClicked) {
 			tryArmStart(client);
+		}
+
+		// Xu ly hang doi hanh dong (co delay giua cac buoc)
+		if (cooldownTicks > 0) {
+			cooldownTicks--;
+		} else if (!pendingActions.isEmpty()) {
+			Runnable action = pendingActions.poll();
+			action.run();
+			cooldownTicks = COMMAND_DELAY_TICKS;
 		}
 	}
 
@@ -143,7 +174,7 @@ public class MacroController {
 						.formatted(Formatting.AQUA));
 
 		state = State.RUNNING_DOTPHA;
-		sendCommand(client, "dotpha");
+		enqueueCommand("dotpha");
 	}
 
 	public void onChatMessage(Text message) {
@@ -165,36 +196,38 @@ public class MacroController {
 		if (containsAny(plain, DOKIEP_PROMPT_PATTERNS)) {
 			if (!verifyTrackedItemStillHeld(client)) return;
 
-			// chuot phai item (dung item) -> /tusat -> /dokiep
-			useTrackedItem(client);
-			sendCommand(client, "tusat");
-			sendCommand(client, "dokiep");
+			// Dung bua (right-click item) roi /dokiep - KHONG dung /tusat nua
+			// (tu sat lam nhan vat "chet" ngay lap tuc, khien /dokiep gui ngay
+			// sau do bi tu choi vi dang o trang thai chet)
+			pendingActions.clear();
+			enqueueUseTrackedItem();
+			enqueueCommand("dokiep");
 			state = State.RUNNING_DOKIEP;
 			return;
 		}
 
 		if (containsAny(plain, DOTPHA_RETRY_PATTERNS)) {
 			if (!verifyTrackedItemStillHeld(client)) return;
-			sendCommand(client, "dotpha");
+			enqueueCommand("dotpha");
 		}
 	}
 
 	private void handleRunningDoKiep(MinecraftClient client, String plain) {
-		// Tin bao ket qua do kiep thuong la broadcast toan server kem ten nguoi choi
-		// (vd "chillguy102 da that bai trong do loi kiep..."), nen phai loc xem co
-		// phai chinh minh khong, tranh nhan nham ket qua cua nguoi khac.
+		// Tin bao ket qua do kiep thuong la broadcast toan server kem ten nguoi
+		// choi (vd "jokhehe da that bai trong do loi kiep..."), nen phai loc xem
+		// co phai chinh minh khong, tranh nhan nham ket qua cua nguoi khac.
 		if (!mentionsMe(client, plain)) return;
 
 		if (containsAny(plain, DOKIEP_FAIL_PATTERNS)) {
 			if (!verifyTrackedItemStillHeld(client)) return;
-			sendCommand(client, "dotpha");
+			enqueueCommand("dotpha");
 			state = State.RUNNING_DOTPHA;
 			return;
 		}
 
 		if (containsAny(plain, DOKIEP_SUCCESS_PATTERNS)) {
 			if (!verifyTrackedItemStillHeld(client)) return;
-			sendCommand(client, "dotpha");
+			enqueueCommand("dotpha");
 			state = State.RUNNING_DOTPHA;
 		}
 	}
@@ -202,7 +235,8 @@ public class MacroController {
 	// ---------------------------------------------------------------------
 
 	/**
-	 * Kiem tra tin nhan co lien quan den chinh nguoi choi hay khong:
+	 * Kiem tra tin nhan (da normalize/de-stylize) co lien quan den chinh nguoi
+	 * choi hay khong:
 	 * - Tin ca nhan (server dung tu "bạn") -> luon coi la lien quan.
 	 * - Tin broadcast toan server kem ten nguoi choi -> chi coi la lien quan
 	 *   neu chua ten (username) cua chinh minh.
@@ -243,6 +277,14 @@ public class MacroController {
 		return true;
 	}
 
+	private void enqueueUseTrackedItem() {
+		pendingActions.add(() -> useTrackedItem(MinecraftClient.getInstance()));
+	}
+
+	private void enqueueCommand(String command) {
+		pendingActions.add(() -> sendCommand(MinecraftClient.getInstance(), command));
+	}
+
 	private void useTrackedItem(MinecraftClient client) {
 		ClientPlayerEntity player = client.player;
 		if (player == null || client.interactionManager == null) return;
@@ -260,6 +302,8 @@ public class MacroController {
 		state = State.IDLE;
 		trackedItem = null;
 		trackedCustomName = null;
+		pendingActions.clear();
+		cooldownTicks = 0;
 		if (wasActive && reasonMessage != null) {
 			DotPhaMacroClient.sendLocalMessage(reasonMessage);
 		}
@@ -269,15 +313,22 @@ public class MacroController {
 
 	private static String extractCustomName(ItemStack stack) {
 		Text name = stack.get(DataComponentTypes.CUSTOM_NAME);
-		return name == null ? null : name.getString();
+		return name == null ? null : normalize(name.getString());
 	}
 
 	private static boolean equalsNullable(String a, String b) {
 		return a == null ? b == null : a.equals(b);
 	}
 
+	/** Ha chu thuong + "giai ma" font cach dieu (small caps / Cyrillic gia dang) ve Latin thuong. */
 	private static String normalize(String s) {
-		return s.toLowerCase(Locale.forLanguageTag("vi"));
+		String lower = s.toLowerCase(Locale.forLanguageTag("vi"));
+		StringBuilder sb = new StringBuilder(lower.length());
+		for (int i = 0; i < lower.length(); i++) {
+			char c = lower.charAt(i);
+			sb.append(STYLE_MAP.getOrDefault(c, c));
+		}
+		return sb.toString();
 	}
 
 	private static boolean containsAny(String haystack, String[] needles) {
