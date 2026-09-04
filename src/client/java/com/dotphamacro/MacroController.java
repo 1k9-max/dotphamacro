@@ -73,6 +73,12 @@ public class MacroController {
 	private Item trackedItem = null;
 	private String trackedCustomName = null; // null = item khong co custom name
 
+	// Theo doi trang thai nhan/nha cua attack key o tick truoc, de tu do "rising edge"
+	// (KHONG dung attackKey.wasPressed() vi vanilla Minecraft da tu tieu thu counter do
+	// trong handleInputEvents() truoc khi END_CLIENT_TICK cua mod chay, khien wasPressed()
+	// luon tra ve false o day)
+	private boolean attackKeyWasDown = false;
+
 	// ---------------------------------------------------------------------
 
 	public void onClientTick(MinecraftClient client) {
@@ -81,16 +87,19 @@ public class MacroController {
 			return;
 		}
 
-		// Xu ly nhan phim toggle (wasPressed la edge-triggered, an toan trong tick loop)
+		// Xu ly nhan phim toggle (wasPressed la edge-triggered, an toan trong tick loop
+		// vi khong co code vanilla nao khac tieu thu counter cua phim ']')
 		while (DotPhaMacroClient.TOGGLE_KEY.wasPressed()) {
 			toggle(client);
 		}
 
-		if (state == State.ARMED) {
-			// Cho nguoi choi left-click (attack key) de xac nhan bat dau
-			if (client.options.attackKey.wasPressed()) {
-				tryArmStart(client);
-			}
+		// Tu do click chuot trai bang edge-detect thu cong tren isPressed()
+		boolean attackKeyDown = client.options.attackKey.isPressed();
+		boolean justClicked = attackKeyDown && !attackKeyWasDown;
+		attackKeyWasDown = attackKeyDown;
+
+		if (state == State.ARMED && justClicked) {
+			tryArmStart(client);
 		}
 	}
 
